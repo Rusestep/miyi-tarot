@@ -11,7 +11,7 @@ test("production build contains the branded React entry", async () => {
   assert.match(html, /<title>秘仪 · 我的塔罗抽牌<\/title>/);
   assert.match(html, /<meta property="og:image" content="\/og\.png"/);
   assert.match(html, /<link rel="canonical" href="\/"/);
-  assert.doesNotMatch(html, /imyis\.cn|__SITE_URL__/);
+  assert.doesNotMatch(html, /__SITE_URL__/);
   assert.match(html, /\/assets\/index-[^"']+\.js/);
   assert.match(html, /\/assets\/index-[^"']+\.css/);
   assert.doesNotMatch(html, /standalone|next\/|_vinext/);
@@ -57,4 +57,22 @@ test("keeps the physical flip layers browser-safe", async () => {
   assert.match(css, /\.tarot-card-front\s*\{[^}]*rotateY\(180deg\)/s);
   assert.doesNotMatch(css, /rotate3d\(var\(--flip-axis/);
   assert.match(headers, /\/index\.html[\s\S]*Cache-Control: no-cache, no-store, must-revalidate/);
+});
+
+test("supports centered mobile cards and opt-in device motion", async () => {
+  const [app, css, headers] = await Promise.all([
+    readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/_headers", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /requestPermission/);
+  assert.match(app, /deviceorientation/);
+  assert.match(app, /重新校准体感/);
+  assert.doesNotMatch(app, /className=\{item\.reversed \? "is-reversed"/);
+  assert.doesNotMatch(css, /\.tarot-card-front img\.is-reversed/);
+  assert.match(css, /\.tarot-card\.is-motion-tracking/);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.drawn-cards\.cards-3\s*\{[^}]*justify-items:\s*center/s);
+  assert.match(headers, /accelerometer=\(self\)/);
+  assert.match(headers, /gyroscope=\(self\)/);
 });

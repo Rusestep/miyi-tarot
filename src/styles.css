@@ -330,6 +330,59 @@ input:focus-visible {
   letter-spacing: 0.1em;
 }
 
+.motion-control {
+  min-height: 48px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+}
+
+.motion-control button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(214, 191, 140, 0.28);
+  border-radius: 999px;
+  background: rgba(214, 191, 140, 0.06);
+  color: #bcb4a3;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+}
+
+.motion-control button:hover {
+  border-color: rgba(214, 191, 140, 0.55);
+  background: rgba(214, 191, 140, 0.11);
+  color: var(--gold-bright);
+}
+
+.motion-control button span {
+  color: var(--gold);
+  font-size: 12px;
+}
+
+.motion-control small {
+  color: #5f6470;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.motion-control.motion-active button {
+  border-color: rgba(130, 188, 159, 0.48);
+  background: rgba(130, 188, 159, 0.08);
+  color: #a9cdb9;
+}
+
+.motion-control.motion-denied button {
+  border-color: rgba(200, 136, 150, 0.42);
+  color: #c88896;
+}
+
 .ritual-stage {
   width: min(1120px, calc(100% - 40px));
   min-height: 540px;
@@ -687,6 +740,10 @@ input:focus-visible {
   transition: transform 70ms linear;
 }
 
+.tarot-card.is-motion-tracking {
+  transition: transform 110ms ease-out;
+}
+
 .tarot-card.is-pressing {
   transform: perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(-3px) scale(0.982);
 }
@@ -766,7 +823,9 @@ input:focus-visible {
 }
 
 .tarot-card.is-tracking .tarot-card-back::after,
-.tarot-card.is-tracking .tarot-card-front::after {
+.tarot-card.is-tracking .tarot-card-front::after,
+.tarot-card.is-motion-tracking .tarot-card-back::after,
+.tarot-card.is-motion-tracking .tarot-card-front::after {
   opacity: 0.72;
 }
 
@@ -834,11 +893,8 @@ input:focus-visible {
   transition: filter 180ms ease;
 }
 
-.tarot-card-front img.is-reversed {
-  transform: rotate(180deg);
-}
-
-.tarot-card.is-tracking .tarot-card-front img {
+.tarot-card.is-tracking .tarot-card-front img,
+.tarot-card.is-motion-tracking .tarot-card-front img {
   filter: saturate(1.075) contrast(1.035) brightness(1.025);
 }
 
@@ -1308,6 +1364,18 @@ footer a {
     gap: 4px;
   }
 
+  .motion-control {
+    min-height: 58px;
+    flex-direction: column;
+    gap: 7px;
+    text-align: center;
+  }
+
+  .motion-control small {
+    max-width: 280px;
+    line-height: 1.5;
+  }
+
   .ritual-stage {
     width: calc(100% - 28px);
     margin-top: 54px;
@@ -1323,7 +1391,17 @@ footer a {
   .drawn-cards.cards-3 {
     display: grid;
     grid-template-columns: 1fr;
+    justify-items: center;
     gap: 36px;
+  }
+
+  .drawn-cards {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .drawn-card-wrap {
+    margin-inline: auto;
   }
 
   .cards-3 .drawn-card-wrap,

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -10,6 +11,11 @@ import { groupFilters, tarotCards, type TarotCard } from "./tarot-data";
 type SpreadSize = 1 | 3;
 type Stage = "ready" | "shuffling" | "drawn";
 type DrawnCard = { card: TarotCard; reversed: boolean; revealed: boolean };
+type MotionStatus = "hidden" | "ready" | "active" | "denied";
+type OrientationBaseline = { beta: number; gamma: number };
+type OrientationApi = typeof DeviceOrientationEvent & {
+  requestPermission?: () => Promise<"granted" | "denied">;
+};
 
 const spreadPositions = {
   1: ["此刻的指引"],
@@ -41,36 +47,57 @@ function drawFromDeck(count: SpreadSize): DrawnCard[] {
   return result;
 }
 
-function updateCardPhysics(event: ReactPointerEvent<HTMLButtonElement>) {
-  if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+function clampAxis(value: number) {
+  return Math.max(-1, Math.min(1, value));
+}
 
-  const element = event.currentTarget;
-  const bounds = element.getBoundingClientRect();
-  const normalizedX = Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width) * 2 - 1));
-  const normalizedY = Math.max(-1, Math.min(1, ((event.clientY - bounds.top) / bounds.height) * 2 - 1));
+function applyCardPhysics(
+  element: HTMLButtonElement,
+  horizontal: number,
+  vertical: number,
+  trackingClass: "is-tracking" | "is-motion-tracking",
+) {
+  const normalizedX = clampAxis(horizontal);
+  const normalizedY = clampAxis(vertical);
   const glareX = ((normalizedX + 1) / 2) * 100;
   const glareY = ((normalizedY + 1) / 2) * 100;
 
-  element.dataset.pointerX = String(normalizedX);
-  element.dataset.pointerY = String(normalizedY);
   element.style.setProperty("--tilt-x", `${(-normalizedY * 10).toFixed(2)}deg`);
   element.style.setProperty("--tilt-y", `${(normalizedX * 10).toFixed(2)}deg`);
   element.style.setProperty("--glare-x", `${glareX.toFixed(1)}%`);
   element.style.setProperty("--glare-y", `${glareY.toFixed(1)}%`);
   element.style.setProperty("--shadow-x", `${(-normalizedX * 15).toFixed(1)}px`);
   element.style.setProperty("--shadow-y", `${(24 - normalizedY * 9).toFixed(1)}px`);
-  element.classList.add("is-tracking");
+  element.classList.add(trackingClass);
 }
 
-function resetCardPhysics(event: ReactPointerEvent<HTMLButtonElement>) {
-  const element = event.currentTarget;
-  element.classList.remove("is-tracking", "is-pressing");
+function clearCardPhysics(element: HTMLButtonElement) {
+  element.classList.remove("is-tracking", "is-motion-tracking", "is-pressing");
   element.style.setProperty("--tilt-x", "0deg");
   element.style.setProperty("--tilt-y", "0deg");
   element.style.setProperty("--glare-x", "50%");
   element.style.setProperty("--glare-y", "42%");
   element.style.setProperty("--shadow-x", "0px");
   element.style.setProperty("--shadow-y", "24px");
+}
+
+function updateCardPhysics(event: ReactPointerEvent<HTMLButtonElement>) {
+  if (event.pointerType !== "mouse" && event.pointerType !== "pen") return;
+
+  const element = event.currentTarget;
+  const bounds = element.getBoundingClientRect();
+  const normalizedX = clampAxis(((event.clientX - bounds.left) / bounds.width) * 2 - 1);
+  const normalizedY = clampAxis(((event.clientY - bounds.top) / bounds.height) * 2 - 1);
+
+  element.dataset.pointerX = String(normalizedX);
+  element.dataset.pointerY = String(normalizedY);
+  applyCardPhysics(element, normalizedX, normalizedY, "is-tracking");
+}
+
+function resetCardPhysics(event: ReactPointerEvent<HTMLButtonElement>) {
+  const element = event.currentTarget;
+  element.classList.remove("is-tracking", "is-pressing");
+  if (!element.classList.contains("is-motion-tracking")) clearCardPhysics(element);
 }
 
 export default function App() {
@@ -81,6 +108,14 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [filter, setFilter] = useState<(typeof groupFilters)[number][0]>("all");
   const [copied, setCopied] = useState(false);
+  const [motionStatus, setMotionStatus] = useState<MotionStatus>(() => {
+    if (typeof window === "undefined" || typeof DeviceOrientationEvent === "undefined") {
+      return "hidden";
+    }
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+    return isTouchDevice ? "ready" : "hidden";
+  });
+  const orientationBaseline = useRef<OrientationBaseline | null>(null);
 
   const allRevealed = drawnCards.length > 0 && drawnCards.every((item) => item.revealed);
   const visibleCards = useMemo(
@@ -100,6 +135,75 @@ export default function App() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [libraryOpen]);
+
+  useEffect(() => {
+    if (motionStatus !== "active") return;
+
+    const recalibrate = () => {
+      orientationBaseline.current = null;
+    };
+
+    const updateFromOrientation = (event: DeviceOrientationEvent) => {
+      if (event.beta === null || event.gamma === null) return;
+
+      if (!orientationBaseline.current) {
+        orientationBaseline.current = { beta: event.beta, gamma: event.gamma };
+        return;
+      }
+
+      let horizontal = clampAxis((event.gamma - orientationBaseline.current.gamma) / 22);
+      let vertical = clampAxis((event.beta - orientationBaseline.current.beta) / 22);
+      const angle = screen.orientation?.angle ?? 0;
+
+      if (angle === 90) {
+        [horizontal, vertical] = [-vertical, horizontal];
+      } else if (angle === 270 || angle === -90) {
+        [horizontal, vertical] = [vertical, -horizontal];
+      } else if (Math.abs(angle) === 180) {
+        horizontal *= -1;
+        vertical *= -1;
+      }
+
+      document.querySelectorAll<HTMLButtonElement>(".tarot-card").forEach((card) => {
+        applyCardPhysics(card, horizontal, vertical, "is-motion-tracking");
+      });
+    };
+
+    window.addEventListener("deviceorientation", updateFromOrientation, true);
+    screen.orientation?.addEventListener("change", recalibrate);
+    document.addEventListener("visibilitychange", recalibrate);
+
+    return () => {
+      window.removeEventListener("deviceorientation", updateFromOrientation, true);
+      screen.orientation?.removeEventListener("change", recalibrate);
+      document.removeEventListener("visibilitychange", recalibrate);
+      document.querySelectorAll<HTMLButtonElement>(".tarot-card").forEach(clearCardPhysics);
+    };
+  }, [motionStatus]);
+
+  const enableMotion = async () => {
+    orientationBaseline.current = null;
+    if (motionStatus === "active") return;
+
+    if (typeof DeviceOrientationEvent === "undefined") {
+      setMotionStatus("hidden");
+      return;
+    }
+
+    try {
+      const orientationApi = DeviceOrientationEvent as OrientationApi;
+      if (typeof orientationApi.requestPermission === "function") {
+        const permission = await orientationApi.requestPermission();
+        if (permission !== "granted") {
+          setMotionStatus("denied");
+          return;
+        }
+      }
+      setMotionStatus("active");
+    } catch {
+      setMotionStatus("denied");
+    }
+  };
 
   const beginReading = () => {
     if (stage === "shuffling") return;
@@ -212,6 +316,30 @@ export default function App() {
               <span>现状 · 挑战 · 指引</span>
             </button>
           </div>
+
+          {motionStatus !== "hidden" && (
+            <div className={`motion-control motion-${motionStatus}`}>
+              <button
+                type="button"
+                onClick={enableMotion}
+                aria-pressed={motionStatus === "active"}
+              >
+                <span aria-hidden="true">◉</span>
+                {motionStatus === "active"
+                  ? "重新校准体感"
+                  : motionStatus === "denied"
+                    ? "重新申请体感权限"
+                    : "开启手机体感"}
+              </button>
+              <small>
+                {motionStatus === "active"
+                  ? "轻轻倾斜手机，卡牌、光泽与阴影会同步变化"
+                  : motionStatus === "denied"
+                    ? "请在浏览器或系统设置中允许动作与方向访问"
+                    : "让卡牌像跟随鼠标一样响应手机倾斜"}
+              </small>
+            </div>
+          )}
         </div>
       </section>
 
@@ -288,11 +416,7 @@ export default function App() {
                         <em>轻触翻牌</em>
                       </span>
                       <span className="tarot-card-front">
-                        <img
-                          className={item.reversed ? "is-reversed" : ""}
-                          src={item.card.image}
-                          alt={item.card.name}
-                        />
+                        <img src={item.card.image} alt={item.card.name} />
                       </span>
                     </span>
                   </button>
